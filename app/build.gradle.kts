@@ -40,7 +40,8 @@ android {
 }
 
 dependencies {
-
+    // MediaPipe Tasks for Generative AI
+    implementation(libs.tasks.genai)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
