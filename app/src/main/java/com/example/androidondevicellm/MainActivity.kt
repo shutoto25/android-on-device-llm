@@ -123,20 +123,48 @@ fun ChatScreen(
                             messages = messages + userMessage
                             isLoading = true
 
+                            // ストリーミング中のメッセージを追加
+                            val streamingMessage = ChatMessage("", false, true)
+                            messages = messages + streamingMessage
+                            val streamingIndex = messages.size - 1
+
                             lifecycleScope.launch {
-                                llmHelper.generateResponse(inputText).fold(
-                                    onSuccess = { response ->
-                                        val aiMessage = ChatMessage(response, false)
-                                        messages = messages + aiMessage
-                                    },
-                                    onFailure = { error ->
-                                        val errorMessage = ChatMessage(
-                                            "エラー: ${error.message ?: "応答の生成に失敗しました"}",
-                                            false
-                                        )
-                                        messages = messages + errorMessage
+                                var accumulatedText = ""
+                                llmHelper.generateResponseAsync(inputText).collect { result ->
+                                    result.fold(
+                                        onSuccess = { partialResponse ->
+                                            if (partialResponse.isNotEmpty()) {
+                                                accumulatedText += partialResponse
+                                                // ストリーミング中のメッセージを更新
+                                                messages = messages.toMutableList().apply {
+                                                    if (streamingIndex < size) {
+                                                        this[streamingIndex] = ChatMessage(accumulatedText, false, true)
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        onFailure = { error ->
+                                            // エラー時は最後のメッセージを置き換え
+                                            messages = messages.toMutableList().apply {
+                                                if (streamingIndex < size) {
+                                                    this[streamingIndex] = ChatMessage(
+                                                        "エラー: ${error.message ?: "応答の生成に失敗しました"}",
+                                                        false
+                                                    )
+                                                }
+                                            }
+                                            isLoading = false
+                                        }
+                                    )
+                                }
+                                // ストリーミング完了後、最終メッセージに変更
+                                if (accumulatedText.isNotEmpty()) {
+                                    messages = messages.toMutableList().apply {
+                                        if (streamingIndex < size) {
+                                            this[streamingIndex] = ChatMessage(accumulatedText, false, false)
+                                        }
                                     }
-                                )
+                                }
                                 isLoading = false
                             }
                             inputText = ""
@@ -175,20 +203,40 @@ fun ChatMessageItem(message: ChatMessage) {
                 }
             )
         ) {
-            Text(
-                text = message.text,
+            Row(
                 modifier = Modifier.padding(12.dp),
-                color = if (message.isUser) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Text(
+                    text = if (message.text.isEmpty() && message.isStreaming) "..." else message.text,
+                    modifier = Modifier.weight(1f),
+                    color = if (message.isUser) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+                
+                if (message.isStreaming && message.text.isNotEmpty()) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .padding(start = 4.dp),
+                        strokeWidth = 1.5.dp,
+                        color = if (message.isUser) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
                 }
-            )
+            }
         }
     }
 }
 
 data class ChatMessage(
     val text: String,
-    val isUser: Boolean
+    val isUser: Boolean,
+    val isStreaming: Boolean = false
 )
